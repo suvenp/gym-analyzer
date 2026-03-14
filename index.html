@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gym Log Analyzer</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1117">
+<link rel="apple-touch-icon" href="icon.svg">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="db.js"></script>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #242836;
+  --border: #2e3345;
+  --text: #e4e4e7;
+  --text2: #9ca3af;
+  --accent: #6366f1;
+  --green: #22c55e;
+  --blue: #3b82f6;
+  --red: #ef4444;
+  --yellow: #eab308;
+  --radius: 10px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ── Nav ── */
+nav {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  -webkit-overflow-scrolling: touch;
+}
+nav button {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+nav button:hover { background: var(--surface2); color: var(--text); }
+nav button.active { background: var(--accent); color: #fff; }
+
+/* ── Layout ── */
+.page { display: none; padding: 20px 16px; max-width: 1100px; margin: 0 auto; }
+.page.active { display: block; }
+
+/* ── Cards ── */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.stat-card .label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+.stat-card .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+.stat-card .sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* ── Chart containers ── */
+.chart-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.chart-wrap h3 { font-size: 14px; color: var(--text2); margin-bottom: 4px; }
+.chart-wrap .chart-desc { font-size: 11px; color: var(--text2); margin-bottom: 12px; opacity: .7; }
+.chart-wrap canvas { width: 100% !important; max-height: 300px; }
+
+/* ── Heatmap ── */
+.heatmap-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.heatmap-wrap h3 { font-size: 14px; color: var(--text2); margin-bottom: 12px; }
+.heatmap-year { margin-bottom: 16px; }
+.heatmap-year-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+.heatmap-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 13px);
+  grid-auto-flow: column;
+  gap: 2px;
+}
+.heatmap-cell {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--surface2);
+}
+.heatmap-cell.l1 { background: #1a4731; }
+.heatmap-cell.l2 { background: #166534; }
+.heatmap-cell.l3 { background: #16a34a; }
+.heatmap-cell.l4 { background: #22c55e; }
+.heatmap-cell[title] { cursor: default; }
+
+/* ── Selects ── */
+select {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 16px; /* prevents iOS zoom */
+  margin-bottom: 16px;
+  width: 100%;
+  max-width: 400px;
+  -webkit-appearance: none;
+}
+select option { background: var(--surface); }
+
+/* ── Day Explorer ── */
+.day-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.day-nav button {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 16px;
+  -webkit-tap-highlight-color: transparent;
+}
+.day-nav button:hover { background: var(--border); }
+.day-nav .day-label { font-size: 18px; font-weight: 600; }
+.day-nav .day-type { font-size: 14px; color: var(--text2); }
+
+.exercise-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.exercise-card .ex-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.exercise-card .ex-name { font-weight: 600; font-size: 15px; }
+.exercise-card .ex-sets-count { font-size: 12px; color: var(--text2); }
+
+.set-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.set-pill {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.set-pill.top { background: rgba(34,197,94,.15); border-color: var(--green); color: var(--green); }
+.set-pill.warmup { opacity: .5; font-style: italic; }
+
+.indicator-bars { display: flex; flex-direction: column; gap: 8px; }
+.indicator-bar { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.indicator-bar .bar-label { width: 110px; color: var(--text2); flex-shrink: 0; font-size: 10px; }
+.indicator-bar .bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  position: relative;
+  min-width: 60px;
+}
+.indicator-bar .bar-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  top: -1px;
+  transform: translateX(-50%);
+}
+.indicator-bar .bar-min, .indicator-bar .bar-max {
+  font-size: 10px;
+  color: var(--text2);
+  width: 36px;
+  font-variant-numeric: tabular-nums;
+}
+.indicator-bar .bar-max { text-align: right; }
+
+/* ── Donut ── */
+.donut-wrap { max-width: 350px; }
+
+/* ── Click hint on charts ── */
+.click-hint {
+  font-size: 11px;
+  color: var(--text2);
+  opacity: .5;
+  margin-top: 6px;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .stat-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat-card { padding: 12px; }
+  .stat-card .value { font-size: 22px; }
+  nav { gap: 2px; padding: 8px 10px; }
+  nav button { padding: 7px 12px; font-size: 13px; }
+  .page { padding: 12px 10px; }
+  .chart-wrap { padding: 12px; }
+  .chart-wrap canvas { max-height: 220px; }
+  .heatmap-grid { gap: 2px; }
+  .heatmap-cell { width: 11px; height: 11px; }
+  .exercise-card { padding: 12px; }
+  .indicator-bar .bar-label { width: 90px; font-size: 9px; }
+  .indicator-bar .bar-min, .indicator-bar .bar-max { width: 30px; font-size: 9px; }
+  .day-nav { gap: 8px; }
+  .day-nav .day-label { font-size: 16px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <button class="active" data-page="dashboard">Dashboard</button>
+  <button data-page="exercise">Exercise Explorer</button>
+  <button data-page="day">Day Explorer</button>
+  <button data-page="consistency">Consistency</button>
+  <a href="gym-logger.html" style="padding:8px 18px;border-radius:6px;color:var(--text2);font-size:14px;font-weight:500;text-decoration:none;white-space:nowrap;display:flex;align-items:center">Log +</a>
+  <button onclick="GymDB.exportAllJSON()" style="margin-left:auto;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text2);font-size:12px;cursor:pointer;white-space:nowrap">Export</button>
+</nav>
+
+<div id="dashboard" class="page active">
+  <div class="stat-row" id="dash-stats"></div>
+  <div class="heatmap-wrap">
+    <h3>Workout Frequency</h3>
+    <div id="heatmap"></div>
+  </div>
+</div>
+
+<div id="exercise" class="page">
+  <select id="exercise-select" onchange="renderExercise()"></select>
+  <div class="stat-row" id="exercise-stats"></div>
+  <div class="chart-wrap">
+    <h3>Top Set Weight Over Time</h3>
+    <div class="chart-desc">Heaviest working set per session. Click a point to view that day.</div>
+    <canvas id="ex-weight-chart"></canvas>
+  </div>
+  <div class="chart-wrap">
+    <h3>Session Volume Over Time</h3>
+    <div class="chart-desc">Volume = total weight x reps for all working sets in a session. Click a bar to view that day.</div>
+    <canvas id="ex-volume-chart"></canvas>
+  </div>
+</div>
+
+<div id="day" class="page">
+  <div class="day-nav">
+    <button onclick="navDay(-1)">&larr; Prev</button>
+    <div>
+      <div class="day-label" id="day-label"></div>
+      <div class="day-type" id="day-type"></div>
+    </div>
+    <button onclick="navDay(1)">Next &rarr;</button>
+  </div>
+  <div id="day-exercises"></div>
+</div>
+
+<div id="consistency" class="page">
+  <div class="stat-row" id="cons-stats"></div>
+  <div class="chart-wrap"><h3>Workouts Per Month</h3><canvas id="cons-month-chart"></canvas></div>
+  <div class="chart-wrap donut-wrap"><h3>Workout Type Breakdown</h3><canvas id="cons-type-chart"></canvas></div>
+</div>
+
+<script>
+let DATA = [];
+let workoutDays = [];
+let currentDayIdx = 0;
+let exWeightChart, exVolumeChart, consMonthChart, consTypeChart;
+
+Chart.defaults.color = '#9ca3af';
+Chart.defaults.borderColor = '#2e3345';
+
+function setVolume(s) {
+  // Bodyweight exercises: use 1 as weight so volume = reps
+  const w = s.weight_lbs > 0 ? s.weight_lbs : 1;
+  return w * s.reps;
+}
+
+async function init() {
+  await GymDB.open();
+  await GymDB.seedIfEmpty('workout_data.json');
+  DATA = await GymDB.getAllSets();
+  DATA.sort((a, b) => a.date.localeCompare(b.date));
+  workoutDays = [...new Set(DATA.map(s => s.date))].sort();
+  currentDayIdx = workoutDays.length - 1;
+
+  // Nav buttons
+  document.querySelectorAll('nav button').forEach(btn => {
+    btn.addEventListener('click', () => showPage(btn.dataset.page, btn));
+  });
+
+  renderDashboard();
+  populateExerciseSelect();
+  renderExercise();
+  renderDay();
+  renderConsistency();
+}
+
+function showPage(id, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  else document.querySelector(`nav button[data-page="${id}"]`).classList.add('active');
+}
+
+function goToDay(dateStr) {
+  const idx = workoutDays.indexOf(dateStr);
+  if (idx >= 0) {
+    currentDayIdx = idx;
+    renderDay();
+    showPage('day');
+    window.scrollTo(0, 0);
+  }
+}
+
+// ── Dashboard ──
+
+function renderDashboard() {
+  const dates = new Set(DATA.map(s => s.date));
+  const totalWorkouts = dates.size;
+
+  const weeks = new Set();
+  dates.forEach(d => {
+    const dt = new Date(d + 'T00:00:00');
+    const yr = dt.getFullYear();
+    const wk = Math.floor((dt - new Date(yr,0,1)) / (7*86400000));
+    weeks.add(`${yr}-W${wk}`);
+  });
+
+  const totalVol = DATA.reduce((s, d) => s + setVolume(d), 0);
+
+  const sortedDates = [...dates].sort().reverse();
+  const weekMap = {};
+  sortedDates.forEach(d => {
+    const dt = new Date(d + 'T00:00:00');
+    const yr = dt.getFullYear();
+    const wk = Math.floor((dt - new Date(yr,0,1)) / (7*86400000));
+    weekMap[`${yr}-${wk}`] = true;
+  });
+  let weekStreakCount = 0;
+  let wkCheck = new Date(sortedDates[0] + 'T00:00:00');
+  while (true) {
+    const yr = wkCheck.getFullYear();
+    const wk = Math.floor((wkCheck - new Date(yr,0,1)) / (7*86400000));
+    if (weekMap[`${yr}-${wk}`]) {
+      weekStreakCount++;
+      wkCheck.setDate(wkCheck.getDate() - 7);
+    } else break;
+  }
+
+  document.getElementById('dash-stats').innerHTML = `
+    <div class="stat-card"><div class="label">Total Workouts</div><div class="value">${totalWorkouts}</div></div>
+    <div class="stat-card"><div class="label">Active Weeks</div><div class="value">${weeks.size}</div></div>
+    <div class="stat-card"><div class="label">Total Volume</div><div class="value">${(totalVol/1000).toFixed(0)}k</div><div class="sub">lbs (weight x reps)</div></div>
+    <div class="stat-card"><div class="label">Week Streak</div><div class="value">${weekStreakCount}</div><div class="sub">consecutive weeks</div></div>
+  `;
+
+  renderHeatmap();
+}
+
+function renderHeatmap() {
+  const dateCounts = {};
+  DATA.forEach(s => {
+    if (!dateCounts[s.date]) dateCounts[s.date] = new Set();
+    dateCounts[s.date].add(s.exercise);
+  });
+
+  const years = [...new Set(Object.keys(dateCounts).map(d => d.slice(0,4)))].sort();
+  const container = document.getElementById('heatmap');
+  container.innerHTML = '';
+
+  years.forEach(year => {
+    const div = document.createElement('div');
+    div.className = 'heatmap-year';
+    const label = document.createElement('div');
+    label.className = 'heatmap-year-label';
+    label.textContent = year;
+    div.appendChild(label);
+
+    const grid = document.createElement('div');
+    grid.className = 'heatmap-grid';
+
+    const jan1 = new Date(parseInt(year), 0, 1);
+    const startDay = jan1.getDay();
+    for (let i = 0; i < startDay; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell';
+      cell.style.visibility = 'hidden';
+      grid.appendChild(cell);
+    }
+
+    const dec31 = new Date(parseInt(year), 11, 31);
+    const totalDays = Math.floor((dec31 - jan1) / 86400000) + 1;
+
+    for (let d = 0; d < totalDays; d++) {
+      const dt = new Date(jan1);
+      dt.setDate(dt.getDate() + d);
+      const dateStr = dt.toISOString().slice(0,10);
+      const count = dateCounts[dateStr] ? dateCounts[dateStr].size : 0;
+
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell';
+      if (count > 0) {
+        const lvl = count <= 3 ? 'l1' : count <= 5 ? 'l2' : count <= 8 ? 'l3' : 'l4';
+        cell.classList.add(lvl);
+        cell.title = `${dateStr}: ${count} exercises`;
+        cell.style.cursor = 'pointer';
+        cell.addEventListener('click', () => goToDay(dateStr));
+      }
+      grid.appendChild(cell);
+    }
+
+    div.appendChild(grid);
+    container.appendChild(div);
+  });
+}
+
+// ── Exercise Explorer ──
+
+function populateExerciseSelect() {
+  const freq = {};
+  DATA.forEach(s => freq[s.exercise] = (freq[s.exercise]||0) + 1);
+  const sorted = Object.entries(freq).sort((a,b) => b[1]-a[1]);
+
+  const sel = document.getElementById('exercise-select');
+  sorted.forEach(([name, count]) => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = `${name} (${count} sets)`;
+    sel.appendChild(opt);
+  });
+}
+
+function renderExercise() {
+  const name = document.getElementById('exercise-select').value;
+  if (!name) return;
+  const sets = DATA.filter(s => s.exercise === name);
+
+  const byDate = {};
+  sets.forEach(s => {
+    if (!byDate[s.date]) byDate[s.date] = [];
+    byDate[s.date].push(s);
+  });
+
+  const dates = Object.keys(byDate).sort();
+  const topWeights = [];
+  const volumes = [];
+  let allTimePR = 0;
+  const prDates = [];
+
+  dates.forEach(d => {
+    const sessionSets = byDate[d].filter(s => !s.is_warmup);
+    if (sessionSets.length === 0) return;
+    const topW = Math.max(...sessionSets.map(s => s.weight_lbs));
+    const vol = sessionSets.reduce((sum, s) => sum + setVolume(s), 0);
+    topWeights.push({ x: d, y: topW });
+    volumes.push({ x: d, y: vol });
+    if (topW > allTimePR) {
+      allTimePR = topW;
+      prDates.push(d);
+    }
+  });
+
+  const prPoints = topWeights.filter(p => prDates.includes(p.x));
+
+  const totalSets = sets.length;
+  const totalSessions = dates.length;
+  document.getElementById('exercise-stats').innerHTML = `
+    <div class="stat-card"><div class="label">All-Time PR</div><div class="value">${allTimePR}</div><div class="sub">lbs</div></div>
+    <div class="stat-card"><div class="label">Total Sets</div><div class="value">${totalSets}</div></div>
+    <div class="stat-card"><div class="label">Sessions</div><div class="value">${totalSessions}</div></div>
+  `;
+
+  // Click handler for both charts
+  const chartClick = (evt, chart) => {
+    const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+    if (points.length > 0) {
+      const idx = points[0].index;
+      const ds = points[0].datasetIndex;
+      const data = chart.data.datasets[ds].data[idx];
+      if (data && data.x) goToDay(data.x);
+    }
+  };
+
+  // Weight chart
+  if (exWeightChart) exWeightChart.destroy();
+  const ctx1 = document.getElementById('ex-weight-chart').getContext('2d');
+  exWeightChart = new Chart(ctx1, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'Top Set Weight',
+          data: topWeights,
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99,102,241,.1)',
+          fill: true,
+          tension: .3,
+          pointRadius: 4,
+          pointHoverRadius: 8,
+          pointHitRadius: 20,
+        },
+        {
+          label: 'PR',
+          data: prPoints,
+          borderColor: '#ef4444',
+          backgroundColor: '#ef4444',
+          pointRadius: 7,
+          pointStyle: 'star',
+          showLine: false,
+          pointHitRadius: 20,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'nearest', intersect: true },
+      onClick: (evt) => chartClick(evt, exWeightChart),
+      scales: {
+        x: { type: 'time', time: { unit: 'month' } },
+        y: { beginAtZero: false, title: { display: true, text: 'lbs' } }
+      },
+      plugins: {
+        legend: { display: true, position: 'top' },
+        tooltip: {
+          callbacks: {
+            afterLabel: () => 'Click to view day'
+          }
+        }
+      }
+    }
+  });
+
+  // Volume chart
+  if (exVolumeChart) exVolumeChart.destroy();
+  const ctx2 = document.getElementById('ex-volume-chart').getContext('2d');
+  exVolumeChart = new Chart(ctx2, {
+    type: 'bar',
+    data: {
+      datasets: [{
+        label: 'Volume',
+        data: volumes,
+        backgroundColor: 'rgba(34,197,94,.6)',
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      onClick: (evt) => chartClick(evt, exVolumeChart),
+      scales: {
+        x: { type: 'time', time: { unit: 'month' } },
+        y: { beginAtZero: true, title: { display: true, text: 'lbs' } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            afterLabel: () => 'Click to view day'
+          }
+        }
+      }
+    }
+  });
+}
+
+// ── Day Explorer ──
+
+function navDay(dir) {
+  currentDayIdx = Math.max(0, Math.min(workoutDays.length - 1, currentDayIdx + dir));
+  renderDay();
+}
+
+function formatSetPill(s) {
+  const rating = s.rating_raw ? ` (${s.rating_raw})` : '';
+  // Bodyweight exercises: show reps only
+  if (s.weight_lbs === 0) {
+    return `${s.reps} reps${rating}`;
+  }
+  return `${s.weight_lbs} x ${s.reps}${rating}`;
+}
+
+function renderDay() {
+  const date = workoutDays[currentDayIdx];
+  const daySets = DATA.filter(s => s.date === date);
+
+  const type = daySets[0]?.workout_type || '';
+  const sessionNum = daySets[0]?.session_number || '';
+
+  document.getElementById('day-label').textContent = formatDate(date);
+  document.getElementById('day-type').textContent = `${type} — session ${sessionNum}`;
+
+  const exercises = [];
+  const seen = new Set();
+  daySets.forEach(s => {
+    if (!seen.has(s.exercise)) {
+      seen.add(s.exercise);
+      exercises.push(s.exercise);
+    }
+  });
+
+  const container = document.getElementById('day-exercises');
+  container.innerHTML = '';
+
+  const currentYear = new Date(date + 'T00:00:00').getFullYear();
+
+  exercises.forEach(exName => {
+    const exSets = daySets.filter(s => s.exercise === exName);
+    const allExSets = DATA.filter(s => s.exercise === exName && !s.is_warmup);
+    const yearExSets = allExSets.filter(s => new Date(s.date + 'T00:00:00').getFullYear() === currentYear);
+
+    const todayWorking = exSets.filter(s => !s.is_warmup);
+    const todayTopWeight = todayWorking.length ? Math.max(...todayWorking.map(s => s.weight_lbs)) : 0;
+    const todayVol = todayWorking.reduce((sum, s) => sum + setVolume(s), 0);
+
+    const allWeights = allExSets.map(s => s.weight_lbs);
+    const atMinW = allWeights.length ? Math.min(...allWeights) : 0;
+    const atMaxW = allWeights.length ? Math.max(...allWeights) : 0;
+
+    const yearWeights = yearExSets.map(s => s.weight_lbs);
+    const yrMinW = yearWeights.length ? Math.min(...yearWeights) : 0;
+    const yrMaxW = yearWeights.length ? Math.max(...yearWeights) : 0;
+
+    const volByDate = {};
+    allExSets.forEach(s => { volByDate[s.date] = (volByDate[s.date]||0) + s.weight_lbs * s.reps; });
+    const allVols = Object.values(volByDate);
+    const atMinV = allVols.length ? Math.min(...allVols) : 0;
+    const atMaxV = allVols.length ? Math.max(...allVols) : 0;
+
+    const yearVolByDate = {};
+    yearExSets.forEach(s => { yearVolByDate[s.date] = (yearVolByDate[s.date]||0) + s.weight_lbs * s.reps; });
+    const yearVols = Object.values(yearVolByDate);
+    const yrMinV = yearVols.length ? Math.min(...yearVols) : 0;
+    const yrMaxV = yearVols.length ? Math.max(...yearVols) : 0;
+
+    const topSetWeight = todayTopWeight;
+    const pills = exSets.map(s => {
+      const isTop = !s.is_warmup && s.weight_lbs === topSetWeight && topSetWeight > 0;
+      const cls = s.is_warmup ? 'warmup' : isTop ? 'top' : '';
+      return `<span class="set-pill ${cls}">${formatSetPill(s)}</span>`;
+    }).join('');
+
+    // Only show indicator bars if exercise has weighted data
+    const hasWeight = todayTopWeight > 0 || atMaxW > 0;
+    const bars = hasWeight ? `
+      <div class="indicator-bars">
+        ${indicatorBar('Top weight (year)', yrMinW, yrMaxW, todayTopWeight, 'var(--green)')}
+        ${indicatorBar('Top weight (all)', atMinW, atMaxW, todayTopWeight, 'var(--blue)')}
+        ${indicatorBar('Volume (year)', yrMinV, yrMaxV, todayVol, 'var(--green)')}
+        ${indicatorBar('Volume (all)', atMinV, atMaxV, todayVol, 'var(--blue)')}
+      </div>
+    ` : '';
+
+    const card = document.createElement('div');
+    card.className = 'exercise-card';
+    card.innerHTML = `
+      <div class="ex-header">
+        <span class="ex-name">${exName}</span>
+        <span class="ex-sets-count">${exSets.length} sets</span>
+      </div>
+      <div class="set-pills">${pills}</div>
+      ${bars}
+    `;
+    container.appendChild(card);
+  });
+}
+
+function indicatorBar(label, min, max, value, color) {
+  const range = max - min || 1;
+  const pct = Math.max(0, Math.min(100, ((value - min) / range) * 100));
+  return `
+    <div class="indicator-bar">
+      <span class="bar-label">${label}</span>
+      <span class="bar-min">${Math.round(min)}</span>
+      <div class="bar-track">
+        <div class="bar-dot" style="left:${pct}%;background:${color}"></div>
+      </div>
+      <span class="bar-max">${Math.round(max)}</span>
+    </div>
+  `;
+}
+
+function formatDate(d) {
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// ── Consistency ──
+
+function renderConsistency() {
+  const dates = [...new Set(DATA.map(s => s.date))].sort();
+
+  const monthCounts = {};
+  dates.forEach(d => {
+    const m = d.slice(0,7);
+    monthCounts[m] = (monthCounts[m]||0) + 1;
+  });
+  const months = Object.keys(monthCounts).sort();
+
+  let longestStreak = 0;
+  let currentStreak = 1;
+  for (let i = 1; i < dates.length; i++) {
+    const diff = (new Date(dates[i]) - new Date(dates[i-1])) / 86400000;
+    if (diff <= 7) {
+      currentStreak++;
+    } else {
+      longestStreak = Math.max(longestStreak, currentStreak);
+      currentStreak = 1;
+    }
+  }
+  longestStreak = Math.max(longestStreak, currentStreak);
+
+  let biggestGap = 0;
+  let gapDates = '';
+  for (let i = 1; i < dates.length; i++) {
+    const diff = (new Date(dates[i]) - new Date(dates[i-1])) / 86400000;
+    if (diff > biggestGap) {
+      biggestGap = diff;
+      gapDates = `${dates[i-1]} to ${dates[i]}`;
+    }
+  }
+
+  document.getElementById('cons-stats').innerHTML = `
+    <div class="stat-card"><div class="label">Longest Streak</div><div class="value">${longestStreak}</div><div class="sub">workouts within 7-day windows</div></div>
+    <div class="stat-card"><div class="label">Biggest Gap</div><div class="value">${biggestGap}</div><div class="sub">days &middot; ${gapDates}</div></div>
+  `;
+
+  if (consMonthChart) consMonthChart.destroy();
+  const ctx = document.getElementById('cons-month-chart').getContext('2d');
+  consMonthChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: [{
+        label: 'Workouts',
+        data: months.map(m => monthCounts[m]),
+        backgroundColor: 'rgba(99,102,241,.7)',
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: { y: { beginAtZero: true } },
+      plugins: { legend: { display: false } }
+    }
+  });
+
+  const typeCounts = {};
+  const dateTypes = {};
+  DATA.forEach(s => { dateTypes[s.date] = s.workout_type; });
+  Object.values(dateTypes).forEach(t => typeCounts[t] = (typeCounts[t]||0) + 1);
+
+  const typeLabels = Object.keys(typeCounts);
+  const typeColors = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+  if (consTypeChart) consTypeChart.destroy();
+  const ctx2 = document.getElementById('cons-type-chart').getContext('2d');
+  consTypeChart = new Chart(ctx2, {
+    type: 'doughnut',
+    data: {
+      labels: typeLabels,
+      datasets: [{
+        data: typeLabels.map(t => typeCounts[t]),
+        backgroundColor: typeColors.slice(0, typeLabels.length),
+        borderWidth: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      cutout: '60%',
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+}
+
+init();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

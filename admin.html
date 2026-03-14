@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gym Log — Admin</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f1117">
+<script src="db.js"></script>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #242836;
+  --border: #2e3345; --text: #e4e4e7; --text2: #9ca3af;
+  --accent: #6366f1; --green: #22c55e; --red: #ef4444;
+  --radius: 10px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 16px; }
+
+h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+.sub { font-size: 12px; color: var(--text2); margin-bottom: 20px; }
+
+.nav-links { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.nav-links a {
+  padding: 8px 14px; border-radius: 6px; background: var(--surface);
+  border: 1px solid var(--border); color: var(--text2); text-decoration: none;
+  font-size: 13px; transition: all .15s;
+}
+.nav-links a:hover { border-color: var(--accent); color: var(--text); }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.stat .label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
+.stat .val { font-size: 22px; font-weight: 700; margin-top: 2px; }
+
+.actions { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.btn {
+  padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 13px; cursor: pointer;
+  transition: all .15s;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.danger { border-color: var(--red); color: var(--red); }
+.btn.danger:hover { background: rgba(239,68,68,.1); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+input[type="file"] { display: none; }
+
+.filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+.filters select, .filters input {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; color: var(--text); font-size: 13px;
+}
+.filters select { -webkit-appearance: none; }
+.filters input { width: 140px; }
+
+.table-wrap { overflow-x: auto; margin-bottom: 20px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { text-align: left; padding: 8px 6px; color: var(--text2); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 6px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr:hover { background: var(--surface); }
+td input {
+  background: transparent; border: 1px solid transparent; color: var(--text);
+  padding: 2px 4px; border-radius: 4px; width: 100%; font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+td input:focus { outline: none; border-color: var(--accent); background: var(--surface2); }
+.del-btn { background: transparent; border: none; color: var(--text2); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; }
+.del-btn:hover { color: var(--red); background: rgba(239,68,68,.1); }
+
+.pagination { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 12px; }
+.pagination button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 12px; }
+.pagination button:disabled { opacity: .3; cursor: not-allowed; }
+.pagination span { font-size: 12px; color: var(--text2); }
+.msg { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; display: none; }
+.msg.show { display: block; }
+.msg.ok { background: rgba(34,197,94,.1); border: 1px solid var(--green); color: var(--green); }
+.msg.err { background: rgba(239,68,68,.1); border: 1px solid var(--red); color: var(--red); }
+</style>
+</head>
+<body>
+
+<h1>Admin</h1>
+<div class="sub">Browse, edit, and manage your workout data</div>
+
+<div class="nav-links">
+  <a href="index.html">Analyzer</a>
+  <a href="gym-logger.html">Logger</a>
+</div>
+
+<div class="msg" id="msg"></div>
+<div class="stats" id="stats"></div>
+
+<div class="actions">
+  <button class="btn primary" onclick="GymDB.exportAllJSON()">Export JSON</button>
+  <button class="btn" onclick="document.getElementById('import-file').click()">Import JSON</button>
+  <input type="file" id="import-file" accept=".json" onchange="doImport(this)">
+  <button class="btn" onclick="doReseed()">Re-seed from JSON</button>
+  <button class="btn danger" onclick="doClear()">Clear All Data</button>
+</div>
+
+<div class="filters">
+  <select id="f-type" onchange="applyFilters()">
+    <option value="">All types</option>
+  </select>
+  <select id="f-exercise" onchange="applyFilters()">
+    <option value="">All exercises</option>
+  </select>
+  <input type="date" id="f-date" onchange="applyFilters()">
+  <input type="text" id="f-search" placeholder="Search..." oninput="applyFilters()">
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Date</th><th>Type</th><th>Exercise</th><th>Set#</th>
+        <th>Weight</th><th>Reps</th><th>WU</th><th>RIR</th><th>Notes</th><th>Source</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+<div class="pagination">
+  <button onclick="prevPage()" id="prev-btn" disabled>&larr; Prev</button>
+  <span id="page-info"></span>
+  <button onclick="nextPage()" id="next-btn">Next &rarr;</button>
+</div>
+
+<script>
+let allData = [];
+let filtered = [];
+let page = 0;
+const PAGE_SIZE = 50;
+
+async function init() {
+  await GymDB.open();
+  await loadData();
+}
+
+async function loadData() {
+  allData = await GymDB.getAllSets();
+  allData.sort((a, b) => b.date.localeCompare(a.date) || b.set_number - a.set_number);
+  populateFilters();
+  await renderStats();
+  applyFilters();
+}
+
+async function renderStats() {
+  const stats = await GymDB.getStats();
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="label">Records</div><div class="val">${stats.totalRecords}</div></div>
+    <div class="stat"><div class="label">Sessions</div><div class="val">${stats.totalSessions}</div></div>
+    <div class="stat"><div class="label">Exercises</div><div class="val">${stats.totalExercises}</div></div>
+    <div class="stat"><div class="label">Date Range</div><div class="val" style="font-size:13px">${stats.dateRange[0] || 'N/A'}<br>${stats.dateRange[1] || ''}</div></div>
+  `;
+}
+
+function populateFilters() {
+  const types = [...new Set(allData.map(s => s.workout_type))].sort();
+  const exercises = [...new Set(allData.map(s => s.exercise))].sort();
+  const tSel = document.getElementById('f-type');
+  tSel.innerHTML = '<option value="">All types</option>' + types.map(t => `<option>${t}</option>`).join('');
+  const eSel = document.getElementById('f-exercise');
+  eSel.innerHTML = '<option value="">All exercises</option>' + exercises.map(e => `<option>${e}</option>`).join('');
+}
+
+function applyFilters() {
+  const type = document.getElementById('f-type').value;
+  const exercise = document.getElementById('f-exercise').value;
+  const date = document.getElementById('f-date').value;
+  const search = document.getElementById('f-search').value.toLowerCase();
+
+  filtered = allData.filter(s => {
+    if (type && s.workout_type !== type) return false;
+    if (exercise && s.exercise !== exercise) return false;
+    if (date && s.date !== date) return false;
+    if (search && !s.exercise.toLowerCase().includes(search) && !s.date.includes(search) && !(s.notes || '').toLowerCase().includes(search)) return false;
+    return true;
+  });
+  page = 0;
+  renderTable();
+}
+
+function renderTable() {
+  const start = page * PAGE_SIZE;
+  const slice = filtered.slice(start, start + PAGE_SIZE);
+  const tbody = document.getElementById('tbody');
+
+  tbody.innerHTML = slice.map(s => `
+    <tr data-id="${s.id}">
+      <td style="color:var(--text2)">${s.id}</td>
+      <td><input value="${s.date}" onchange="editField(${s.id},'date',this.value)"></td>
+      <td><input value="${s.workout_type}" onchange="editField(${s.id},'workout_type',this.value)" style="width:50px"></td>
+      <td><input value="${s.exercise}" onchange="editField(${s.id},'exercise',this.value)" style="width:140px"></td>
+      <td style="text-align:center">${s.set_number}</td>
+      <td><input type="number" value="${s.weight_lbs}" onchange="editField(${s.id},'weight_lbs',+this.value)" style="width:60px"></td>
+      <td><input type="number" value="${s.reps}" onchange="editField(${s.id},'reps',+this.value)" style="width:50px"></td>
+      <td style="text-align:center;color:var(--text2)">${s.is_warmup ? 'Y' : ''}</td>
+      <td style="text-align:center">${s.rating_raw ?? ''}</td>
+      <td style="max-width:100px;overflow:hidden;text-overflow:ellipsis;color:var(--text2)">${s.notes || ''}</td>
+      <td style="color:var(--text2);font-size:10px">${s.source_file || ''}</td>
+      <td><button class="del-btn" onclick="delRecord(${s.id})">x</button></td>
+    </tr>
+  `).join('');
+
+  document.getElementById('page-info').textContent = `${start + 1}–${Math.min(start + PAGE_SIZE, filtered.length)} of ${filtered.length}`;
+  document.getElementById('prev-btn').disabled = page === 0;
+  document.getElementById('next-btn').disabled = start + PAGE_SIZE >= filtered.length;
+}
+
+function prevPage() { page = Math.max(0, page - 1); renderTable(); }
+function nextPage() { page++; renderTable(); }
+
+async function editField(id, field, value) {
+  try {
+    await GymDB.updateRecord(id, { [field]: value });
+    showMsg('Saved', 'ok');
+    // Update local cache
+    const rec = allData.find(r => r.id === id);
+    if (rec) rec[field] = value;
+  } catch (e) {
+    showMsg('Save failed: ' + e.message, 'err');
+  }
+}
+
+async function delRecord(id) {
+  if (!confirm('Delete record #' + id + '?')) return;
+  await GymDB.deleteRecord(id);
+  allData = allData.filter(r => r.id !== id);
+  applyFilters();
+  await renderStats();
+  showMsg('Deleted', 'ok');
+}
+
+async function doImport(input) {
+  if (!input.files.length) return;
+  try {
+    const count = await GymDB.importJSON(input.files[0]);
+    showMsg(`Imported ${count} records`, 'ok');
+    await loadData();
+  } catch (e) {
+    showMsg('Import failed: ' + e.message, 'err');
+  }
+  input.value = '';
+}
+
+async function doReseed() {
+  if (!confirm('This will REPLACE all data with workout_data.json. Continue?')) return;
+  try {
+    await GymDB.clearAll();
+    const res = await fetch('workout_data.json');
+    if (!res.ok) throw new Error('workout_data.json not found');
+    const data = await res.json();
+    const file = new File([JSON.stringify(data)], 'seed.json', { type: 'application/json' });
+    const count = await GymDB.importJSON(file);
+    showMsg('Re-seeded with ' + count + ' records', 'ok');
+    await loadData();
+  } catch (e) {
+    showMsg('Re-seed failed: ' + e.message, 'err');
+  }
+}
+
+async function doClear() {
+  if (!confirm('DELETE ALL DATA? This cannot be undone.')) return;
+  if (!confirm('Are you really sure? All workout history will be gone.')) return;
+  await GymDB.clearAll();
+  showMsg('All data cleared', 'ok');
+  await loadData();
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg show ' + type;
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+init();
+</script>
+</body>
+</html>
