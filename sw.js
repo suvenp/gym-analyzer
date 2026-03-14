@@ -1,8 +1,9 @@
-const CACHE_NAME = 'gym-pwa-v1';
+const CACHE_NAME = 'gym-pwa-v5';
 const ASSETS = [
   '/',
   '/index.html',
   '/gym-logger.html',
+  '/manager.html',
   '/admin.html',
   '/db.js',
   '/manifest.json',

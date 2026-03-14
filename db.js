@@ -165,6 +165,11 @@
     const data = await getAllSets();
     const result = {};
 
+    const now = new Date();
+    const cutoff6m = new Date(now);
+    cutoff6m.setMonth(cutoff6m.getMonth() - 6);
+    const cutoff6str = cutoff6m.toISOString().slice(0, 10);
+
     // Group by workout_type then exercise
     const byTypeEx = {};
     data.forEach(s => {
@@ -188,15 +193,16 @@
           sessions[s.date].push(s);
         });
         const sessionDates = Object.keys(sessions).sort();
-
-        // Last session
         const lastDate = sessionDates[sessionDates.length - 1];
+
+        // Skip exercises not done in the last 6 months
+        if (lastDate < cutoff6str) continue;
+
         const lastSession = sessions[lastDate] || [];
         const workingSets = lastSession.filter(s => !s.is_warmup);
-
         const lastSets = workingSets.map(s => ({ w: s.weight_lbs, r: s.reps }));
 
-        // Last RIR — take the last non-null rating from last session
+        // Last RIR
         let lastRIR = null;
         for (let i = workingSets.length - 1; i >= 0; i--) {
           if (workingSets[i].rating_raw !== null) {
@@ -209,7 +215,7 @@
         const allWorking = sets.filter(s => !s.is_warmup);
         const pr = allWorking.length ? Math.max(...allWorking.map(s => s.weight_lbs)) : 0;
 
-        // Trend + stalled count — compare top weights of last 3 sessions
+        // Trend + stalled count
         let trend = 'new';
         let stalled = 0;
         if (sessionDates.length >= 2) {
@@ -218,8 +224,6 @@
             const ws = sessions[d].filter(s => !s.is_warmup);
             return ws.length ? Math.max(...ws.map(s => s.weight_lbs)) : 0;
           });
-
-          // Count how many recent sessions had same or lower top weight
           const lastTop = topWeights[topWeights.length - 1];
           const prevTop = topWeights[topWeights.length - 2];
 
@@ -227,7 +231,6 @@
             trend = 'progressing';
           } else if (lastTop === prevTop) {
             trend = 'holding';
-            // Count consecutive sessions at same weight
             for (let i = topWeights.length - 2; i >= 0; i--) {
               if (topWeights[i] <= lastTop) stalled++;
               else break;
@@ -244,19 +247,19 @@
           trend = 'progressing';
         }
 
-        // Superset detection — check last session for superset_id
+        // Superset detection
         let superset = null;
         const ssId = lastSession.find(s => s.superset_id)?.superset_id;
         if (ssId) {
-          // Find the other exercise(s) with same superset_id on same date
           const sameDate = data.filter(s => s.date === lastDate && s.superset_id === ssId && s.exercise !== exName);
-          if (sameDate.length > 0) {
-            superset = sameDate[0].exercise;
-          }
+          if (sameDate.length > 0) superset = sameDate[0].exercise;
         }
 
-        // Alts — other exercises of same workout type
+        // Alts — other exercises of same workout type (all time, for surprise me)
         const alts = Object.keys(exercises).filter(n => n !== exName);
+
+        // Count sessions in last 6 months for sorting
+        const recentSessionCount = sessionDates.filter(d => d >= cutoff6str).length;
 
         result[type].push({
           name: exName,
@@ -267,16 +270,19 @@
           stalled,
           trend,
           alts,
+          _lastDate: lastDate,
+          _recentCount: recentSessionCount,
         });
       }
 
-      // Sort by number of sessions (most used first)
-      result[type].sort((a, b) => b.lastSets.length - a.lastSets.length);
+      // Sort by recent frequency
+      result[type].sort((a, b) => b._recentCount - a._recentCount);
+
+      // Clean up internal sort fields
+      result[type].forEach(ex => { delete ex._lastDate; delete ex._recentCount; });
     }
 
-    // Ensure Freedom type exists
     if (!result.Freedom) result.Freedom = [];
-
     return result;
   }
 

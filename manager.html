@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Workout Manager</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f0f0f">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="db.js"></script>
+<style>
+:root{
+  --bg:#0f0f0f;--surf:#1a1a1a;--surf2:#242424;--bdr:#2e2e2e;
+  --txt:#f0ede8;--muted:#6b6760;
+  --acc:#c8f060;--acc-dim:rgba(200,240,96,0.1);--acc-txt:#0f0f0f;
+  --warn:#f0a060;--warn-dim:rgba(240,160,96,0.1);
+  --grn:#60d0a0;--grn-dim:rgba(96,208,160,0.1);
+  --r:12px;--mono:'DM Mono',monospace;--sans:'DM Sans',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:15px;min-height:100vh;padding-bottom:80px}
+
+.header{padding:20px 20px 0;max-width:520px;margin:0 auto}
+.header h1{font-size:24px;font-weight:500;letter-spacing:-.03em}
+.header-sub{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:4px;margin-bottom:16px}
+.nav-links{display:flex;gap:8px;margin-bottom:20px}
+.nav-links a{font-size:11px;font-family:var(--mono);color:var(--muted);text-decoration:none;padding:6px 12px;border:1px solid var(--bdr);border-radius:6px}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;padding:0 20px;max-width:520px;margin:0 auto 16px;overflow-x:auto}
+.tab{padding:10px 16px;border:1px solid var(--bdr);border-radius:8px;background:var(--surf);color:var(--muted);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .15s;font-family:var(--sans)}
+.tab.on{background:var(--acc-dim);border-color:var(--acc);color:var(--acc)}
+
+.content{max-width:520px;margin:0 auto;padding:0 20px}
+
+/* Template section */
+.tpl-section{display:none}
+.tpl-section.active{display:block}
+
+.sec-label{font-size:10px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.sec-label::after{content:'';flex:1;height:1px;background:var(--bdr)}
+
+/* Template exercise card */
+.tpl-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;transition:all .15s}
+.tpl-card .tpl-info{flex:1;min-width:0}
+.tpl-card .tpl-name{font-size:14px;font-weight:500}
+.tpl-card .tpl-meta{font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:2px}
+.tpl-card .tpl-meta .hi{color:var(--acc)}
+.tpl-card .tpl-ss{font-size:10px;font-family:var(--mono);color:var(--warn);margin-top:3px}
+.tpl-card .tpl-actions{display:flex;gap:6px;flex-shrink:0}
+.tpl-btn{background:transparent;border:1px solid var(--bdr);border-radius:6px;padding:6px 10px;font-size:11px;font-family:var(--mono);color:var(--muted);cursor:pointer;transition:all .15s}
+.tpl-btn:hover{border-color:var(--acc);color:var(--acc)}
+.tpl-btn.del{color:var(--muted)}
+.tpl-btn.del:hover{border-color:#ef4444;color:#ef4444}
+
+.empty-msg{text-align:center;padding:24px;color:var(--muted);font-size:13px;font-family:var(--mono)}
+
+/* Add bar */
+.add-bar{margin-top:12px;margin-bottom:20px}
+.add-btn{width:100%;background:transparent;border:1px dashed rgba(200,240,96,.3);border-radius:var(--r);padding:12px;color:rgba(200,240,96,.6);font-size:13px;font-family:var(--mono);cursor:pointer;transition:all .15s;text-align:center}
+.add-btn:hover{border-color:var(--acc);color:var(--acc);background:var(--acc-dim)}
+
+/* Save bar */
+.save-bar{position:fixed;bottom:0;left:0;right:0;padding:12px 20px 20px;background:linear-gradient(transparent,var(--bg) 35%)}
+.save-bar-inner{max-width:520px;margin:0 auto}
+.save-btn{width:100%;background:var(--acc);color:var(--acc-txt);border:none;border-radius:var(--r);padding:14px;font-size:15px;font-weight:500;font-family:var(--sans);cursor:pointer;transition:all .15s}
+.save-btn:active{transform:scale(.98)}
+
+/* Modal */
+.moverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;align-items:flex-end}
+.moverlay.show{display:flex}
+.modal{background:var(--surf);border-radius:16px 16px 0 0;width:100%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;padding-bottom:20px}
+.mhandle{width:36px;height:4px;background:var(--bdr);border-radius:99px;margin:12px auto 14px}
+.mtitle{font-size:15px;font-weight:500;padding:0 16px 12px;border-bottom:1px solid var(--bdr)}
+.msearch{padding:10px 16px}
+.msearch input{width:100%;background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;padding:10px 12px;color:var(--txt);font-family:var(--mono);font-size:14px}
+.msearch input:focus{outline:none;border-color:var(--acc)}
+.mlist{overflow-y:auto;flex:1;padding:0 16px}
+.mseclbl{font-size:9px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.08em;padding:8px 0 4px}
+.mitem{padding:12px 10px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:background .15s}
+.mitem:hover{background:var(--surf2)}
+.mitem .miname{font-size:14px}
+.mitem .mimeta{font-size:11px;font-family:var(--mono);color:var(--muted)}
+.mcancel{margin:8px 16px 0;width:calc(100% - 32px);background:var(--surf2);border:1px solid var(--bdr);border-radius:10px;padding:13px;font-size:14px;color:var(--muted);font-family:var(--sans);cursor:pointer;text-align:center}
+
+/* Pair modal */
+.pair-item{padding:12px 10px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:background .15s}
+.pair-item:hover{background:var(--surf2)}
+.pair-item.on{background:var(--warn-dim);border:1px solid rgba(240,160,96,.3)}
+.pair-item .piname{font-size:14px}
+.pair-item .pimeta{font-size:11px;font-family:var(--mono);color:var(--muted)}
+.pair-none{padding:12px 10px;border-radius:8px;cursor:pointer;display:flex;align-items:center;transition:background .15s;color:var(--muted);font-size:13px}
+.pair-none:hover{background:var(--surf2)}
+.pair-none.on{background:var(--surf2);border:1px solid var(--bdr)}
+
+.msg{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:8px;font-size:13px;font-family:var(--mono);z-index:200;opacity:0;transition:opacity .3s}
+.msg.show{opacity:1}
+.msg.ok{background:var(--grn-dim);border:1px solid var(--grn);color:var(--grn)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Workout Manager</h1>
+  <div class="header-sub">Set your default exercises and supersets for each workout type</div>
+  <div class="nav-links">
+    <a href="gym-logger.html">Logger</a>
+    <a href="index.html">Dashboard</a>
+  </div>
+</div>
+
+<div class="tabs" id="tabs"></div>
+
+<div class="content" id="content"></div>
+
+<div class="save-bar">
+  <div class="save-bar-inner">
+    <button class="save-btn" onclick="saveTemplates()">Save templates</button>
+  </div>
+</div>
+
+<!-- Add exercise modal -->
+<div class="moverlay" id="add-modal">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">Add exercise</div>
+    <div class="msearch"><input type="text" id="add-search" placeholder="Search exercises..." oninput="filterAddList()"></div>
+    <div class="mlist" id="add-list"></div>
+    <button class="mcancel" onclick="closeAddModal()">Cancel</button>
+  </div>
+</div>
+
+<!-- Pair modal -->
+<div class="moverlay" id="pair-modal">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <div class="mtitle">Pair with...</div>
+    <div class="mlist" id="pair-list"></div>
+    <button class="mcancel" onclick="closePairModal()">Cancel</button>
+  </div>
+</div>
+
+<div class="msg" id="msg"></div>
+
+<script>
+const TYPES = ['Pull', 'Push', 'Legs', 'Core'];
+let loggerDB = {};      // all exercises from history
+let templates = {};     // user's saved templates {Pull: [{name, superset}], ...}
+let activeType = 'Pull';
+let pairTarget = null;  // index of exercise being paired
+
+async function init() {
+  await GymDB.open();
+  await GymDB.seedIfEmpty('workout_data.json');
+  loggerDB = await GymDB.buildLoggerDB();
+
+  // Load saved templates
+  try {
+    const saved = localStorage.getItem('gym_templates');
+    if (saved) templates = JSON.parse(saved);
+  } catch(e) {}
+
+  // Init empty templates for types that don't have one
+  TYPES.forEach(t => {
+    if (!templates[t]) {
+      // Auto-populate from top exercises in loggerDB (first 4)
+      const exs = (loggerDB[t] || []).slice(0, 4);
+      templates[t] = exs.map(e => ({
+        name: e.name,
+        superset: e.superset || null
+      }));
+    }
+  });
+
+  renderTabs();
+  renderTemplate();
+}
+
+function renderTabs() {
+  const tabs = document.getElementById('tabs');
+  tabs.innerHTML = TYPES.map(t =>
+    `<button class="tab${t === activeType ? ' on' : ''}" onclick="switchType('${t}')">${t}</button>`
+  ).join('');
+}
+
+function switchType(type) {
+  activeType = type;
+  renderTabs();
+  renderTemplate();
+}
+
+function renderTemplate() {
+  const tpl = templates[activeType] || [];
+  const content = document.getElementById('content');
+
+  let html = `<div class="sec-label">Default exercises for ${activeType}</div>`;
+
+  if (tpl.length === 0) {
+    html += `<div class="empty-msg">No exercises yet. Tap "Add exercise" below.</div>`;
+  } else {
+    tpl.forEach((ex, i) => {
+      const dbEx = findInDB(activeType, ex.name);
+      const lastInfo = dbEx && dbEx.lastSets.length
+        ? `Last: <span class="hi">${Math.max(...dbEx.lastSets.map(s=>s.w))} lbs</span> · ${dbEx.lastSets.length} sets`
+        : 'No recent data';
+      const ssInfo = ex.superset
+        ? `<div class="tpl-ss">⟲ Paired: ${ex.superset}</div>`
+        : '';
+
+      html += `<div class="tpl-card">
+        <div class="tpl-info">
+          <div class="tpl-name">${ex.name}</div>
+          <div class="tpl-meta">${lastInfo}</div>
+          ${ssInfo}
+        </div>
+        <div class="tpl-actions">
+          <button class="tpl-btn" onclick="openPairModal(${i})">${ex.superset ? 'repair' : 'pair'}</button>
+          <button class="tpl-btn" onclick="moveEx(${i},-1)">↑</button>
+          <button class="tpl-btn" onclick="moveEx(${i},1)">↓</button>
+          <button class="tpl-btn del" onclick="removeEx(${i})">✕</button>
+        </div>
+      </div>`;
+    });
+  }
+
+  html += `<div class="add-bar"><button class="add-btn" onclick="openAddModal()">+ Add exercise</button></div>`;
+
+  content.innerHTML = html;
+}
+
+function findInDB(type, name) {
+  // Search in the specific type first, then all types
+  const typeExs = loggerDB[type] || [];
+  let found = typeExs.find(e => e.name === name);
+  if (found) return found;
+  for (const exs of Object.values(loggerDB)) {
+    found = exs.find(e => e.name === name);
+    if (found) return found;
+  }
+  return null;
+}
+
+function removeEx(idx) {
+  templates[activeType].splice(idx, 1);
+  renderTemplate();
+}
+
+function moveEx(idx, dir) {
+  const tpl = templates[activeType];
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= tpl.length) return;
+  [tpl[idx], tpl[newIdx]] = [tpl[newIdx], tpl[idx]];
+  renderTemplate();
+}
+
+// ── Add exercise modal ──
+function openAddModal() {
+  document.getElementById('add-search').value = '';
+  renderAddList('');
+  document.getElementById('add-modal').classList.add('show');
+  setTimeout(() => document.getElementById('add-search').focus(), 100);
+}
+
+function closeAddModal() {
+  document.getElementById('add-modal').classList.remove('show');
+}
+
+function filterAddList() {
+  renderAddList(document.getElementById('add-search').value);
+}
+
+function renderAddList(q) {
+  const list = document.getElementById('add-list');
+  list.innerHTML = '';
+  const current = (templates[activeType] || []).map(e => e.name);
+  const qLower = q.toLowerCase();
+
+  // Exercises from this workout type (last 6 months)
+  const typeExs = (loggerDB[activeType] || [])
+    .filter(e => !current.includes(e.name))
+    .filter(e => !q || e.name.toLowerCase().includes(qLower));
+
+  // Exercises from other types
+  const otherExs = [];
+  for (const [t, exs] of Object.entries(loggerDB)) {
+    if (t === activeType) continue;
+    exs.forEach(e => {
+      if (!current.includes(e.name) && !typeExs.find(x => x.name === e.name)) {
+        if (!q || e.name.toLowerCase().includes(qLower)) {
+          otherExs.push({ ...e, fromType: t });
+        }
+      }
+    });
+  }
+
+  if (typeExs.length) {
+    list.innerHTML += `<div class="mseclbl">${activeType} exercises (last 6 months)</div>`;
+    typeExs.forEach(e => {
+      const topW = e.lastSets.length ? Math.max(...e.lastSets.map(s => s.w)) : 0;
+      const meta = topW ? `${topW} lbs · ${e.trend}` : 'no recent data';
+      list.innerHTML += `<div class="mitem" onclick="addExercise('${esc(e.name)}')">
+        <div class="miname">${e.name}</div><div class="mimeta">${meta}</div>
+      </div>`;
+    });
+  }
+
+  if (otherExs.length) {
+    list.innerHTML += `<div class="mseclbl">Other workout types</div>`;
+    otherExs.slice(0, 15).forEach(e => {
+      list.innerHTML += `<div class="mitem" onclick="addExercise('${esc(e.name)}')">
+        <div class="miname">${e.name}</div><div class="mimeta">from ${e.fromType}</div>
+      </div>`;
+    });
+  }
+
+  if (q && q.length > 1) {
+    list.innerHTML += `<div class="mseclbl">Create new</div>`;
+    list.innerHTML += `<div class="mitem" onclick="addExercise('${esc(q)}')">
+      <div class="miname">${q}</div><div class="mimeta">new exercise</div>
+    </div>`;
+  }
+
+  if (!typeExs.length && !otherExs.length && (!q || q.length <= 1)) {
+    list.innerHTML += `<div class="empty-msg">All exercises already added</div>`;
+  }
+}
+
+function esc(s) { return s.replace(/'/g, "\\'"); }
+
+function addExercise(name) {
+  if (!templates[activeType]) templates[activeType] = [];
+  templates[activeType].push({ name, superset: null });
+  closeAddModal();
+  renderTemplate();
+}
+
+// ── Pair modal ──
+function openPairModal(idx) {
+  pairTarget = idx;
+  const tpl = templates[activeType];
+  const current = tpl[idx];
+  const list = document.getElementById('pair-list');
+
+  let html = `<div class="pair-none${!current.superset ? ' on' : ''}" onclick="setPair(null)">No superset (standalone)</div>`;
+
+  // Show other exercises in this template as pairing options
+  tpl.forEach((ex, i) => {
+    if (i === idx) return;
+    const isOn = current.superset === ex.name;
+    html += `<div class="pair-item${isOn ? ' on' : ''}" onclick="setPair('${esc(ex.name)}')">
+      <div class="piname">${ex.name}</div>
+      <div class="pimeta">in template</div>
+    </div>`;
+  });
+
+  // Also show exercises from history not in template
+  const tplNames = tpl.map(e => e.name);
+  const extras = (loggerDB[activeType] || []).filter(e => !tplNames.includes(e.name)).slice(0, 10);
+  if (extras.length) {
+    html += `<div class="mseclbl">From history</div>`;
+    extras.forEach(e => {
+      const isOn = current.superset === e.name;
+      html += `<div class="pair-item${isOn ? ' on' : ''}" onclick="setPair('${esc(e.name)}')">
+        <div class="piname">${e.name}</div>
+        <div class="pimeta">not in template</div>
+      </div>`;
+    });
+  }
+
+  list.innerHTML = html;
+  document.getElementById('pair-modal').classList.add('show');
+}
+
+function closePairModal() {
+  document.getElementById('pair-modal').classList.remove('show');
+  pairTarget = null;
+}
+
+function setPair(name) {
+  if (pairTarget !== null) {
+    templates[activeType][pairTarget].superset = name;
+  }
+  closePairModal();
+  renderTemplate();
+}
+
+// ── Save ──
+function saveTemplates() {
+  localStorage.setItem('gym_templates', JSON.stringify(templates));
+  showMsg('Templates saved');
+}
+
+function showMsg(text) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg show ok';
+  setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// Close modals on backdrop tap
+['add-modal', 'pair-modal'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => {
+    if (e.target === document.getElementById(id)) {
+      document.getElementById(id).classList.remove('show');
+    }
+  });
+});
+
+init();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
