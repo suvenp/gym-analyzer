@@ -112,8 +112,21 @@
   }
 
   async function exportAllJSON() {
-    const data = await getAllSets();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const sets = await getAllSets();
+    let templates = null;
+    try {
+      const saved = localStorage.getItem('gym_templates');
+      if (saved) templates = JSON.parse(saved);
+    } catch(e) {}
+
+    const exportData = {
+      version: 1,
+      exported: new Date().toISOString(),
+      sets,
+      templates,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -127,10 +140,24 @@
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
-          const data = JSON.parse(e.target.result);
-          if (!Array.isArray(data)) throw new Error('Expected JSON array');
-          await bulkInsert(data);
-          resolve(data.length);
+          const parsed = JSON.parse(e.target.result);
+          let sets;
+
+          if (Array.isArray(parsed)) {
+            // Old format: flat array of sets
+            sets = parsed;
+          } else if (parsed.version && parsed.sets) {
+            // New format: { version, sets, templates }
+            sets = parsed.sets;
+            if (parsed.templates) {
+              localStorage.setItem('gym_templates', JSON.stringify(parsed.templates));
+            }
+          } else {
+            throw new Error('Unrecognized format');
+          }
+
+          await bulkInsert(sets);
+          resolve(sets.length);
         } catch (err) {
           reject(err);
         }
