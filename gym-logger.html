@@ -474,8 +474,9 @@ function buildBody(ex,idx){
 
 function buildBlock(ex,idx,isPaired,sets){
   const pid=isPaired?'p':'m';
+  const exNameAttr=isPaired?(ex.superset||'').replace(/"/g,'&quot;'):ex.name.replace(/"/g,'&quot;');
   let h=`<div class="clbls"><div class="clbl2">#</div><div class="clbl2">lbs</div><div class="clbl2">reps</div><div class="clbl2">RIR</div><div></div></div>
-  <div class="setrow">
+  <div class="setrow" data-ex="${exNameAttr}" data-warmup="1">
     <div class="sn" style="font-size:9px">W</div>
     <input class="inp" type="number" placeholder="wt" oninput="updateVol();autoSave()">
     <input class="inp" type="number" placeholder="reps" oninput="updateVol();autoSave()">
@@ -485,7 +486,7 @@ function buildBlock(ex,idx,isPaired,sets){
   for(let i=0;i<sets;i++){
     const s=(!isPaired)&&ex.sug&&ex.sug[i];
     const cls=s?'inp pre':'inp';
-    h+=`<div class="setrow">
+    h+=`<div class="setrow" data-ex="${exNameAttr}">
       <div class="sn">${i+1}</div>
       <input class="${cls}" type="number" ${s?`value="${s.w}"`:'placeholder="lbs"'} oninput="${!isPaired?`chkPR(this,${ex.pr});`:''}updateVol();autoSave()">
       <input class="${cls}" type="number" ${s?`value="${s.r}"`:'placeholder="reps"'} oninput="updateVol();autoSave()">
@@ -493,7 +494,7 @@ function buildBlock(ex,idx,isPaired,sets){
       <button class="rembtn" onclick="removeSet(this)">−</button>
     </div>`;
   }
-  h+=`</div><button class="addbtn" onclick="addSet('${pid}-sets-${idx}',${!isPaired?ex.pr:0})">+ add set</button>`;
+  h+=`</div><button class="addbtn" onclick="addSet('${pid}-sets-${idx}',${!isPaired?ex.pr:0},'${exNameAttr.replace(/'/g,"\\'")}')">+ add set</button>`;
   return h;
 }
 
@@ -506,10 +507,11 @@ function toggleEx(idx){
 }
 function selRest(btn,group){group.querySelectorAll('.rest-opt').forEach(b=>b.classList.remove('on'));btn.classList.add('on');}
 function selRIR(btn){btn.closest('.setrow').querySelectorAll('.rir-opt').forEach(b=>b.classList.remove('on'));btn.classList.add('on');autoSave();}
-function addSet(cid,pr){
+function addSet(cid,pr,exName){
   const con=document.getElementById(cid);if(!con)return;
   const n=con.querySelectorAll('.setrow').length+1;
   const row=document.createElement('div');row.className='setrow';
+  if(exName)row.dataset.ex=exName;
   row.innerHTML=`<div class="sn">${n}</div>
     <input class="inp" type="number" placeholder="lbs" oninput="${pr?`chkPR(this,${pr});`:''}updateVol();autoSave()">
     <input class="inp" type="number" placeholder="reps" oninput="updateVol();autoSave()">
@@ -797,122 +799,73 @@ async function saveSession(){
 function collectSessionRecords() {
   const records = [];
   const dateStr = new Date().toISOString().slice(0, 10);
-  const cards = document.querySelectorAll('.ec');
   let sessionNum = 1;
 
-  cards.forEach((card, cardIdx) => {
+  // Every setrow has data-ex attribute identifying which exercise it belongs to
+  const allRows = document.querySelectorAll('#excon .setrow[data-ex]');
+  // Group by exercise name, preserving order
+  const byExercise = {};
+  allRows.forEach(row => {
+    const exName = row.dataset.ex;
+    if (!exName) return;
+    if (!byExercise[exName]) byExercise[exName] = [];
+    byExercise[exName].push(row);
+  });
+
+  // Determine superset IDs from S.exercises
+  const ssMap = {};
+  S.exercises.forEach(ex => {
+    if (ex.superset) {
+      const ssId = `${dateStr}-${ex.name.substring(0, 10)}-ss`;
+      ssMap[ex.name] = ssId;
+      ssMap[ex.superset] = ssId;
+    }
+  });
+
+  for (const [exName, rows] of Object.entries(byExercise)) {
+    const ssId = ssMap[exName] || null;
+    let setNum = 0;
+
+    rows.forEach(row => {
+      const ins = row.querySelectorAll('.inp');
+      if (ins.length < 2) return;
+      const w = parseFloat(ins[0].value) || 0;
+      const r = parseInt(ins[1].value) || 0;
+      if (r === 0 && w === 0) return;
+
+      const isWarmup = row.dataset.warmup === '1';
+
+      let rir = null;
+      if (!isWarmup) {
+        const rirSel = row.querySelector('.rir-opt.on');
+        if (rirSel) rir = parseFloat(rirSel.textContent);
+      }
+
+      if (!isWarmup) setNum++;
+
+      records.push({
+        date: dateStr, workout_type: S.type, session_number: sessionNum,
+        exercise: exName, set_number: isWarmup ? 0 : setNum, weight_lbs: w, reps: r,
+        is_warmup: isWarmup, rating_raw: rir, rating_normalized: rir,
+        rating_era: 'rir', superset_id: ssId, notes: null,
+        source_file: 'logger'
+      });
+    });
+  }
+
+  // Attach notes
+  document.querySelectorAll('.ec').forEach((card, cardIdx) => {
     const ex = S.exercises[cardIdx];
     if (!ex) return;
-    const exName = ex.name;
-    const ssId = ex.superset ? `${dateStr}-${exName.substring(0, 10)}-ss` : null;
-
-    // Main exercise: warmup row is the setrow right before m-sets container
-    const mainCon = card.querySelector(`#m-sets-${cardIdx}`);
-    if (mainCon) {
-      // Warmup: the setrow immediately before this container (after the divider)
-      const prev = mainCon.previousElementSibling;
-      if (prev && prev.previousElementSibling && prev.previousElementSibling.classList.contains('setrow')) {
-        // Actually the warmup row structure is: clbls, setrow(warmup), div, m-sets-container
-        // Walk backwards from mainCon
-      }
-      // Safer: find warmup by looking for setrow with "W" label before the container
-      const sbody = card.querySelector('.sbody');
-      if (sbody) {
-        const allRows = sbody.querySelectorAll('.setrow');
-        // First setrow in the sbody is the main warmup (has "W" label)
-        if (allRows.length > 0) {
-          const wRow = allRows[0];
-          const snEl = wRow.querySelector('.sn');
-          if (snEl && snEl.textContent.trim() === 'W') {
-            const ins = wRow.querySelectorAll('.inp');
-            if (ins.length >= 2) {
-              const w = parseFloat(ins[0].value) || 0;
-              const r = parseInt(ins[1].value) || 0;
-              if (r > 0) {
-                records.push({
-                  date: dateStr, workout_type: S.type, session_number: sessionNum,
-                  exercise: exName, set_number: 0, weight_lbs: w, reps: r,
-                  is_warmup: true, rating_raw: null, rating_normalized: null,
-                  rating_era: 'rir', superset_id: null, notes: null, source_file: 'logger'
-                });
-              }
-            }
-          }
-        }
-      }
-
-      // Working sets from m-sets container only
-      collectSetsFromContainer(mainCon, exName, dateStr, sessionNum, records, ssId);
-    }
-
-    // Paired exercise
-    if (ex.superset) {
-      const pairCon = card.querySelector(`#p-sets-${cardIdx}`);
-      if (pairCon) {
-        // Paired warmup: find the warmup setrow for the paired block
-        // It's the setrow with "W" label inside the paired section (after the plbl divider)
-        const sbody = card.querySelector('.sbody');
-        if (sbody) {
-          // All setrows with "W" label — second one is the paired warmup
-          const wRows = [...sbody.querySelectorAll('.setrow')].filter(r => {
-            const sn = r.querySelector('.sn');
-            return sn && sn.textContent.trim() === 'W';
-          });
-          if (wRows.length >= 2) {
-            const wRow = wRows[1];
-            const ins = wRow.querySelectorAll('.inp');
-            if (ins.length >= 2) {
-              const w = parseFloat(ins[0].value) || 0;
-              const r = parseInt(ins[1].value) || 0;
-              if (r > 0) {
-                records.push({
-                  date: dateStr, workout_type: S.type, session_number: sessionNum,
-                  exercise: ex.superset, set_number: 0, weight_lbs: w, reps: r,
-                  is_warmup: true, rating_raw: null, rating_normalized: null,
-                  rating_era: 'rir', superset_id: ssId, notes: null, source_file: 'logger'
-                });
-              }
-            }
-          }
-        }
-
-        collectSetsFromContainer(pairCon, ex.superset, dateStr, sessionNum, records, ssId);
-      }
-    }
-
-    // Notes
     const notesEl = card.querySelector('.notesf');
     const notes = notesEl ? notesEl.value.trim() : '';
     if (notes) {
-      const mainSets = records.filter(r => r.exercise === exName && r.date === dateStr && !r.is_warmup);
+      const mainSets = records.filter(r => r.exercise === ex.name && !r.is_warmup);
       if (mainSets.length > 0) mainSets[mainSets.length - 1].notes = notes;
     }
   });
 
   return records;
-}
-
-function collectSetsFromContainer(container, exName, dateStr, sessionNum, records, ssId) {
-  const rows = container.querySelectorAll('.setrow');
-  rows.forEach((row, i) => {
-    const ins = row.querySelectorAll('.inp');
-    if (ins.length < 2) return;
-    const w = parseFloat(ins[0].value) || 0;
-    const r = parseInt(ins[1].value) || 0;
-    if (r === 0 && w === 0) return;
-
-    let rir = null;
-    const rirSel = row.querySelector('.rir-opt.on');
-    if (rirSel) rir = parseFloat(rirSel.textContent);
-
-    records.push({
-      date: dateStr, workout_type: S.type, session_number: sessionNum,
-      exercise: exName, set_number: i + 1, weight_lbs: w, reps: r,
-      is_warmup: false, rating_raw: rir, rating_normalized: rir,
-      rating_era: 'rir', superset_id: ssId, notes: null,
-      source_file: 'logger'
-    });
-  });
 }
 function discardSession(){
   if(confirm('Discard this session?')){
