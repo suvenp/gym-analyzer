@@ -678,10 +678,16 @@ function renderDay() {
     const yrMinV = yearVols.length ? Math.min(...yearVols) : 0;
     const yrMaxV = yearVols.length ? Math.max(...yearVols) : 0;
 
-    const topSetWeight = todayTopWeight;
-    const pills = exSets.map(s => {
-      const isTop = !s.is_warmup && s.weight_lbs === topSetWeight && topSetWeight > 0;
-      const cls = s.is_warmup ? 'warmup' : isTop ? 'top' : '';
+    // Highlight only the single best set (highest weight, then highest reps)
+    let bestIdx = -1;
+    let bestW = 0, bestR = 0;
+    exSets.forEach((s, i) => {
+      if (!s.is_warmup && (s.weight_lbs > bestW || (s.weight_lbs === bestW && s.reps > bestR))) {
+        bestW = s.weight_lbs; bestR = s.reps; bestIdx = i;
+      }
+    });
+    const pills = exSets.map((s, i) => {
+      const cls = s.is_warmup ? 'warmup' : i === bestIdx ? 'top' : '';
       return `<span class="set-pill ${cls}">${formatSetPill(s)}</span>`;
     }).join('');
 

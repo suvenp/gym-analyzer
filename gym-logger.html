@@ -798,51 +798,85 @@ function collectSessionRecords() {
   const records = [];
   const dateStr = new Date().toISOString().slice(0, 10);
   const cards = document.querySelectorAll('.ec');
-  // Compute session number
   let sessionNum = 1;
 
   cards.forEach((card, cardIdx) => {
     const ex = S.exercises[cardIdx];
     if (!ex) return;
     const exName = ex.name;
+    const ssId = ex.superset ? `${dateStr}-${exName.substring(0, 10)}-ss` : null;
 
-    // Main exercise sets
-    const mainCon = card.querySelector('[id^="m-sets-"]');
+    // Main exercise: warmup row is the setrow right before m-sets container
+    const mainCon = card.querySelector(`#m-sets-${cardIdx}`);
     if (mainCon) {
-      collectSetsFromContainer(mainCon, card, exName, dateStr, sessionNum, ex.superset, records);
-    }
-
-    // Warmup row (first setrow before the divider in main block)
-    const warmupRows = card.querySelectorAll('.sbody > .setrow');
-    if (warmupRows.length > 0) {
-      const wRow = warmupRows[0]; // warmup row is before the sets container
-      const ins = wRow.querySelectorAll('.inp');
-      if (ins.length >= 2) {
-        const w = parseFloat(ins[0].value) || 0;
-        const r = parseInt(ins[1].value) || 0;
-        if (r > 0) {
-          records.push({
-            date: dateStr, workout_type: S.type, session_number: sessionNum,
-            exercise: exName, set_number: 0, weight_lbs: w, reps: r,
-            is_warmup: true, rating_raw: null, rating_normalized: null,
-            rating_era: 'rir', superset_id: null, notes: null, source_file: 'logger'
-          });
+      // Warmup: the setrow immediately before this container (after the divider)
+      const prev = mainCon.previousElementSibling;
+      if (prev && prev.previousElementSibling && prev.previousElementSibling.classList.contains('setrow')) {
+        // Actually the warmup row structure is: clbls, setrow(warmup), div, m-sets-container
+        // Walk backwards from mainCon
+      }
+      // Safer: find warmup by looking for setrow with "W" label before the container
+      const sbody = card.querySelector('.sbody');
+      if (sbody) {
+        const allRows = sbody.querySelectorAll('.setrow');
+        // First setrow in the sbody is the main warmup (has "W" label)
+        if (allRows.length > 0) {
+          const wRow = allRows[0];
+          const snEl = wRow.querySelector('.sn');
+          if (snEl && snEl.textContent.trim() === 'W') {
+            const ins = wRow.querySelectorAll('.inp');
+            if (ins.length >= 2) {
+              const w = parseFloat(ins[0].value) || 0;
+              const r = parseInt(ins[1].value) || 0;
+              if (r > 0) {
+                records.push({
+                  date: dateStr, workout_type: S.type, session_number: sessionNum,
+                  exercise: exName, set_number: 0, weight_lbs: w, reps: r,
+                  is_warmup: true, rating_raw: null, rating_normalized: null,
+                  rating_era: 'rir', superset_id: null, notes: null, source_file: 'logger'
+                });
+              }
+            }
+          }
         }
       }
+
+      // Working sets from m-sets container only
+      collectSetsFromContainer(mainCon, exName, dateStr, sessionNum, records, ssId);
     }
 
-    // Paired exercise sets
+    // Paired exercise
     if (ex.superset) {
-      const pairCon = card.querySelector('[id^="p-sets-"]');
+      const pairCon = card.querySelector(`#p-sets-${cardIdx}`);
       if (pairCon) {
-        const ssId = `${dateStr}-${exName.substring(0, 10)}-ss`;
-        collectSetsFromContainer(pairCon, card, ex.superset, dateStr, sessionNum, exName, records, ssId);
-        // Also tag main exercise sets with superset_id
-        records.forEach(r => {
-          if (r.exercise === exName && r.date === dateStr && !r.is_warmup) {
-            r.superset_id = ssId;
+        // Paired warmup: find the warmup setrow for the paired block
+        // It's the setrow with "W" label inside the paired section (after the plbl divider)
+        const sbody = card.querySelector('.sbody');
+        if (sbody) {
+          // All setrows with "W" label — second one is the paired warmup
+          const wRows = [...sbody.querySelectorAll('.setrow')].filter(r => {
+            const sn = r.querySelector('.sn');
+            return sn && sn.textContent.trim() === 'W';
+          });
+          if (wRows.length >= 2) {
+            const wRow = wRows[1];
+            const ins = wRow.querySelectorAll('.inp');
+            if (ins.length >= 2) {
+              const w = parseFloat(ins[0].value) || 0;
+              const r = parseInt(ins[1].value) || 0;
+              if (r > 0) {
+                records.push({
+                  date: dateStr, workout_type: S.type, session_number: sessionNum,
+                  exercise: ex.superset, set_number: 0, weight_lbs: w, reps: r,
+                  is_warmup: true, rating_raw: null, rating_normalized: null,
+                  rating_era: 'rir', superset_id: ssId, notes: null, source_file: 'logger'
+                });
+              }
+            }
           }
-        });
+        }
+
+        collectSetsFromContainer(pairCon, ex.superset, dateStr, sessionNum, records, ssId);
       }
     }
 
@@ -850,7 +884,6 @@ function collectSessionRecords() {
     const notesEl = card.querySelector('.notesf');
     const notes = notesEl ? notesEl.value.trim() : '';
     if (notes) {
-      // Attach notes to the last set of the main exercise
       const mainSets = records.filter(r => r.exercise === exName && r.date === dateStr && !r.is_warmup);
       if (mainSets.length > 0) mainSets[mainSets.length - 1].notes = notes;
     }
@@ -859,16 +892,15 @@ function collectSessionRecords() {
   return records;
 }
 
-function collectSetsFromContainer(container, card, exName, dateStr, sessionNum, pairedWith, records, ssId) {
+function collectSetsFromContainer(container, exName, dateStr, sessionNum, records, ssId) {
   const rows = container.querySelectorAll('.setrow');
   rows.forEach((row, i) => {
     const ins = row.querySelectorAll('.inp');
     if (ins.length < 2) return;
     const w = parseFloat(ins[0].value) || 0;
     const r = parseInt(ins[1].value) || 0;
-    if (r === 0 && w === 0) return; // skip empty rows
+    if (r === 0 && w === 0) return;
 
-    // Get selected RIR
     let rir = null;
     const rirSel = row.querySelector('.rir-opt.on');
     if (rirSel) rir = parseFloat(rirSel.textContent);
@@ -877,7 +909,7 @@ function collectSetsFromContainer(container, card, exName, dateStr, sessionNum, 
       date: dateStr, workout_type: S.type, session_number: sessionNum,
       exercise: exName, set_number: i + 1, weight_lbs: w, reps: r,
       is_warmup: false, rating_raw: rir, rating_normalized: rir,
-      rating_era: 'rir', superset_id: ssId || null, notes: null,
+      rating_era: 'rir', superset_id: ssId, notes: null,
       source_file: 'logger'
     });
   });
