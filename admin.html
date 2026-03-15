@@ -96,6 +96,7 @@ td input:focus { outline: none; border-color: var(--accent); background: var(--s
   <button class="btn" onclick="document.getElementById('import-file').click()">Import JSON</button>
   <input type="file" id="import-file" accept=".json" onchange="doImport(this)">
   <button class="btn" onclick="doReseed()">Re-seed from JSON</button>
+  <button class="btn danger" onclick="delAllFiltered()">Delete Filtered</button>
   <button class="btn danger" onclick="doClear()">Clear All Data</button>
 </div>
 
@@ -225,12 +226,24 @@ async function editField(id, field, value) {
 }
 
 async function delRecord(id) {
-  if (!confirm('Delete record #' + id + '?')) return;
   await GymDB.deleteRecord(id);
   allData = allData.filter(r => r.id !== id);
   applyFilters();
   await renderStats();
   showMsg('Deleted', 'ok');
+}
+
+async function delAllFiltered() {
+  if (filtered.length === 0) return;
+  const count = filtered.length;
+  if (!confirm('Delete ' + count + ' filtered records?')) return;
+  for (const rec of filtered) {
+    await GymDB.deleteRecord(rec.id);
+  }
+  allData = allData.filter(r => !filtered.find(f => f.id === r.id));
+  applyFilters();
+  await renderStats();
+  showMsg('Deleted ' + count + ' records', 'ok');
 }
 
 async function doImport(input) {
