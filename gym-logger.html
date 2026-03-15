@@ -353,6 +353,8 @@ let S={type:null,reps:10,sets:3,rir:8,exercises:[]};
 let swapTarget=null, addSelName=null, addMode='standalone', saveT;
 let dragSrc=null;
 let sessionSaved=false;
+let lastSaveTime=null;
+let saveTimerInterval=null;
 
 document.getElementById('setup-date').textContent=
   new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}).toUpperCase();
@@ -375,6 +377,8 @@ function selInt(btn){document.querySelectorAll('.ib').forEach(b=>b.classList.rem
 // ── START ──
 function startSession(){
   sessionSaved=false;
+  lastSaveTime=null;
+  if(saveTimerInterval){clearInterval(saveTimerInterval);saveTimerInterval=null;}
   S.exercises=JSON.parse(JSON.stringify(DB[S.type]||[]));
   S.exercises.forEach(ex=>computeSug(ex));
   document.getElementById('log-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}).toUpperCase();
@@ -783,21 +787,45 @@ function checkDraft(){
   }catch(e){}
 }
 async function saveSession(){
-  if (sessionSaved) return;
   const b=document.querySelector('.savebtn');
   b.disabled=true;
   try {
     const records = collectSessionRecords();
     if (records.length === 0) { alert('No sets to save.'); b.disabled=false; return; }
+
+    // Delete previous save for this session (same date + source=logger + same workout type)
+    if (sessionSaved) {
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const allSets = await GymDB.getAllSets();
+      const oldRecords = allSets.filter(s => s.date === dateStr && s.source_file === 'logger' && s.workout_type === S.type);
+      for (const r of oldRecords) {
+        await GymDB.deleteRecord(r.id);
+      }
+    }
+
     await GymDB.saveSessionSets(records);
     sessionSaved=true;
-    b.textContent='Saved ✓';b.style.background='var(--grn)';
+    lastSaveTime=Date.now();
+    updateSaveButton();
+    if(!saveTimerInterval) saveTimerInterval=setInterval(updateSaveButton,60000);
     try{localStorage.removeItem('gym_draft');}catch(e){}
     DB = await GymDB.buildLoggerDB();
+    b.disabled=false;
   } catch(err) {
     b.disabled=false;
     alert('Save failed: ' + err.message);
   }
+}
+
+function updateSaveButton(){
+  const b=document.querySelector('.savebtn');
+  if(!lastSaveTime){b.textContent='Save session';b.style.background='var(--acc)';return;}
+  const mins=Math.floor((Date.now()-lastSaveTime)/60000);
+  const timeStr=mins<1?'just now':mins<60?mins+'m ago':Math.floor(mins/60)+'h ago';
+  b.textContent='Save session · ✓ '+timeStr;
+  b.style.background='var(--grn)';
+  // Fade from green back toward accent over time
+  if(mins>=5) b.style.background='var(--acc)';
 }
 
 function collectSessionRecords() {
