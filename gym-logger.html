@@ -352,6 +352,7 @@ async function loadDB() {
 let S={type:null,reps:10,sets:3,rir:8,exercises:[]};
 let swapTarget=null, addSelName=null, addMode='standalone', saveT;
 let dragSrc=null;
+let sessionSaved=false;
 
 document.getElementById('setup-date').textContent=
   new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}).toUpperCase();
@@ -373,6 +374,7 @@ function selInt(btn){document.querySelectorAll('.ib').forEach(b=>b.classList.rem
 
 // ── START ──
 function startSession(){
+  sessionSaved=false;
   S.exercises=JSON.parse(JSON.stringify(DB[S.type]||[]));
   S.exercises.forEach(ex=>computeSug(ex));
   document.getElementById('log-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}).toUpperCase();
@@ -781,17 +783,19 @@ function checkDraft(){
   }catch(e){}
 }
 async function saveSession(){
+  if (sessionSaved) return;
   const b=document.querySelector('.savebtn');
+  b.disabled=true;
   try {
     const records = collectSessionRecords();
-    if (records.length === 0) { alert('No sets to save.'); return; }
+    if (records.length === 0) { alert('No sets to save.'); b.disabled=false; return; }
     await GymDB.saveSessionSets(records);
+    sessionSaved=true;
     b.textContent='Saved ✓';b.style.background='var(--grn)';
     try{localStorage.removeItem('gym_draft');}catch(e){}
-    // Reload DB so next session has updated history
     DB = await GymDB.buildLoggerDB();
-    setTimeout(()=>{b.textContent='Save session';b.style.background='var(--acc)';},2500);
   } catch(err) {
+    b.disabled=false;
     alert('Save failed: ' + err.message);
   }
 }
